@@ -1,0 +1,132 @@
+with h as
+
+(
+SELECT  p.CODUSU, u.NOMEUSU, p.tipomed, opc.opcao, isnull(IIF(fator1 = 'S', -50, NULL), 0) AS Assiduidade, isnull(IIF(fator2 = 'S', -50, NULL),0) AS Uniforme_epi , isnull(IIF(fator3 = 'S', -170, NULL),0) AS Falta,
+		
+		isnull(IIF(fator4 >= 0, -50, NULL),0) AS Erro, isnull(IIF(fator5 = 'S', -100, NULL),0) AS Avaria , isnull(IIF(fator6 = 'S', -50, NULL),0) AS Desorganização,
+		
+		isnull(IIF(fator7 = 'S', 10, NULL),0) AS pro_atividade, isnull(IIF(fator8 = 'S', 10, NULL),0) AS Desempenho , isnull(IIF(fator9 = 'S', 10, NULL),0) AS Interesse,
+		
+		isnull(IIF(fator10 = 'S', 10, NULL),0) AS Motivação
+
+FROM AD_WMSPRODDIAUSU p
+
+inner join TSIUSU u on (u.CODUSU = p.CODUSU)
+INNER JOIN TDDCAM CAM ON (CAM.NOMETAB = 'AD_WMSPRODDIAUSU' AND CAM.NOMECAMPO = 'TIPOMED')
+INNER JOIN TDDOPC OPC ON (OPC.NUCAMPO = 9999991194 AND OPC.VALOR = p.TIPOMED)
+
+
+ where DTMED >= '01-08-2023' and DTMED <= '31-08-2023' ),
+
+ k as (
+ select h.tipomed, h.opcao, h.CODUSU, h.NOMEUSU,  sum(Assiduidade) 'Assiduidade', sum(uniforme_epi) 'Uniforme/EPI', sum(Falta) 'Falta', sum(erro) 'Erro', sum(avaria) 'Avaria', sum(Desorganização) 'Desorganização',
+
+ sum(pro_atividade) 'pro-atividade', sum(Desempenho) 'Desempenho', sum(interesse) 'Interesse', sum(motivação) 'Motivação'
+ 
+ 
+ from h
+
+ group by h.CODUSU, h.nomeusu, h.TIPOMED, h.opcao),
+
+  b as (
+
+ select  k.codusu, k.nomeusu, (Assiduidade + [Uniforme/EPI] + Erro + Falta + Avaria + Desorganização ) Contras, ([pro-atividade] + Desempenho + Interesse + Motivação) prós    from k),
+
+ resu as (
+
+SELECT RESU.CODUSU ,RESU.ITENSSEP, RESU.ITENSCONFSEP
+FROM (
+
+SELECT T.CODUSU, USU.NOMEUSU,
+       SUM(CASE WHEN T.TIPO = 'CR' THEN QTDEXEC ELSE 0 END) AS ITENSCONFREC,
+       SUM(CASE WHEN T.TIPO = 'AR' THEN QTDEXEC ELSE 0 END) AS ITENSARM,
+       SUM(CASE WHEN T.TIPO = 'CS' THEN QTDEXEC ELSE 0 END) AS ITENSCONFSEP,
+       SUM(CASE WHEN T.TIPO = 'SS' THEN QTDEXEC ELSE 0 END) AS ITENSSEP,
+       SUM(CASE WHEN T.TIPO = 'RS' THEN QTDEXEC ELSE 0 END) AS ITENSREAB,
+       SUM(CASE WHEN T.TIPO = 'CI' THEN QTDEXEC ELSE 0 END) AS ITENSCONT,
+       SUM(CASE WHEN T.TIPO = 'CV' THEN QTDEXEC ELSE 0 END) AS ITENSCONFVOL
+ FROM (SELECT 'CR' AS TIPO, 'Conferência de Recebimento' AS DESCRTIPO, 
+			  COUNT(1) AS QTDEXEC, SUM(COI.QTDECONF) AS QTDUNIDADES, COI.CODUSU
+		 FROM TGWREC REC
+		      INNER JOIN TGWCON CON ON CON.NURECEBIMENTO = REC.NURECEBIMENTO OR CON.NUCONFERENCIA = REC.NUCONFERENCIA
+			  INNER JOIN TGWCOI COI ON COI.NUCONFERENCIA = CON.NUCONFERENCIA
+		WHERE COI.RECONTAGEM = 'N'
+	      AND CONVERT(DATE, COI.DHALTER, 103) >= CONVERT(DATE, '01-08-2023', 103)
+	      AND CONVERT(DATE, COI.DHALTER, 103) <= CONVERT(DATE, '31-08-2023', 103)
+	    GROUP BY COI.CODUSU
+	    UNION ALL
+	   SELECT 'AR' AS TIPO, 'Armazenagem' AS DESCRTIPO, 
+	          COUNT(1) AS QTDEXEC, SUM(ITT.QTDVOLPAD) AS QTDUNIDADES, ITT.CODUSUEXEC AS CODUSU
+		 FROM TGWREC REC
+	          INNER JOIN TGWTAR TAR ON TAR.NUTAREFA = REC.NUTAREFA
+			  INNER JOIN TGWITT ITT ON ITT.NUTAREFA = TAR.NUTAREFA
+		WHERE ITT.SITUACAO = 'F'
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) >= CONVERT(DATE, '01-08-2023', 103)
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) <= CONVERT(DATE, '31-08-2023', 103)
+		GROUP BY ITT.CODUSUEXEC
+      UNION ALL
+	   SELECT 'CS' AS TIPO, 'Conferência de Separação' AS DESCRTIPO, 
+			  COUNT(1) AS QTDEXEC, SUM(COI.QTDECONF) AS QTDUNIDADES, COI.CODUSU
+		 FROM TGWSEP SEP
+		      INNER JOIN TGWCON CON ON CON.NUCONFERENCIA = SEP.NUCONFERENCIA
+			  INNER JOIN TGWCOI COI ON COI.NUCONFERENCIA = CON.NUCONFERENCIA
+	      AND CONVERT(DATE, COI.DHALTER, 103) >= CONVERT(DATE, '01-08-2023', 103)
+	      AND CONVERT(DATE, COI.DHALTER, 103) <= CONVERT(DATE, '31-08-2023', 103)
+	    GROUP BY COI.CODUSU
+      UNION ALL
+	   SELECT 'SS' AS TIPO, 'Separação' AS DESCRTIPO, 
+	          COUNT(1) AS QTDEXEC, SUM(ITT.QTDVOLPAD) AS QTDUNIDADES, ITT.CODUSUEXEC AS CODUSU
+		 FROM TGWSEP SEP
+	          INNER JOIN TGWTAR TAR ON TAR.NUTAREFA = SEP.NUTAREFA
+			  INNER JOIN TGWITT ITT ON ITT.NUTAREFA = TAR.NUTAREFA
+		WHERE ITT.SITUACAO = 'F'
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) >= CONVERT(DATE, '01-08-2023', 103)
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) <= CONVERT(DATE, '31-08-2023', 103)
+		GROUP BY ITT.CODUSUEXEC
+      UNION ALL
+	   SELECT 'RS' AS TIPO, 'Reabastecimento' AS DESCRTIPO, 
+	          COUNT(1) AS QTDEXEC, SUM(ITT.QTDVOLPAD) AS QTDUNIDADES, ITT.CODUSUEXEC AS CODUSU
+		 FROM TGWTAR TAR 
+			  INNER JOIN TGWITT ITT ON ITT.NUTAREFA = TAR.NUTAREFA
+		WHERE ITT.SITUACAO = 'F'
+		  AND TAR.CODTAREFA IN (4, 15)
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) >= CONVERT(DATE, '01-08-2023', 103)
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) <= CONVERT(DATE, '31-08-2023', 103)
+		GROUP BY ITT.CODUSUEXEC
+      UNION ALL
+	   SELECT 'CI' AS TIPO, 'Contagem de Inventário' AS DESCRTIPO, 
+	          COUNT(1) AS QTDEXEC, SUM(ITT.QTDVOLPAD) AS QTDUNIDADES, ITT.CODUSUEXEC AS CODUSU
+		 FROM TGWTAR TAR 
+			  INNER JOIN TGWITT ITT ON ITT.NUTAREFA = TAR.NUTAREFA
+		WHERE ITT.SITUACAO = 'F'
+		  AND TAR.CODTAREFA = 6
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) >= CONVERT(DATE, '01-08-2023', 103)
+		  AND CONVERT(DATE, ITT.DHFINALEXEC, 103) <= CONVERT(DATE, '31-08-2023', 103)
+		GROUP BY ITT.CODUSUEXEC
+      UNION ALL
+	   SELECT 'CV' AS TIPO, 'Conferência de Volumes' AS DESCRTIPO, 
+	          COUNT(1) AS QTDEXEC, SUM(1) AS QTDUNIDADES, REV.CODUSUCONF AS CODUSU
+		 FROM TGWREV REV
+		WHERE CONVERT(DATE, REV.DHFINCONF, 103) >= CONVERT(DATE, '01-08-2023', 103)
+		  AND CONVERT(DATE, REV.DHFINCONF, 103) <= CONVERT(DATE, '31-08-2023', 103)
+		GROUP BY REV.CODUSUCONF
+		) T
+       INNER JOIN TSIUSU USU ON USU.CODUSU = T.CODUSU
+ GROUP BY T.CODUSU, USU.NOMEUSU) RESU GROUP BY RESU.CODUSU, resu.itenssep, resu.itensconfsep)
+
+
+
+  select DISTINCT
+ b.nomeusu, sum(assiduidade) as Assiduidade, sum(Uniforme_epi) As Uniforme_epi, sum(Falta) As Falta, 
+ sum(Erro) as Erro, sum(Avaria) as Avaria, sum(Desorganização) as Desorganização, sum(pro_atividade) as pro_atividade,
+ sum(Desempenho) as Desempenho, sum(Interesse) as Interesse, sum(Motivação) as Motivação,
+ contras, pros,(contras + prós) saldo, /*,
+((SELECT TOTAL FROM RESU WHERE (RESU.CODUSU = H.CODUSU)) + (contras + prós)) as rank*/ 
+CASE WHEN h.tipomed = 'C' THEN (RESU.ITENSCONFSEP + (prós + contras)) else (RESU.ITENSSEP + (prós + contras)) END AS total
+
+
+from b, h, resu  where (b.codusu = h.codusu and resu.codusu=h.codusu)
+and contras < 9000 and contras < 9000 AND H.TIPOMED = 'S'
+
+group by contras, pros, b.nomeusu, h.tipomed, RESU.ITENSCONFSEP, RESU.ITENSSEP
+ORDER BY 15 desc
